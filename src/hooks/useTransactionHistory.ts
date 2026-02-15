@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { formatUnits } from "viem";
 
 interface TransactionData {
@@ -19,167 +19,122 @@ interface TransactionData {
   };
 }
 
+async function fetchTransactions(address: string): Promise<TransactionData[]> {
+  const url = new URL("/api/transactions", window.location.origin);
+  url.searchParams.set("address", address);
+  url.searchParams.set("limit", "10");
+  url.searchParams.set("offset", "0");
+
+  const response = await fetch(url.toString());
+
+  if (!response.ok) {
+    throw new Error(`Failed to fetch transactions: ${response.statusText}`);
+  }
+
+  const data = (await response.json()) as {
+    transactions?: Array<{
+      hash: string;
+      from: string;
+      to: string;
+      value: string;
+      blockNumber: string;
+      input: string;
+      timestamp: number;
+      type?: string;
+      calls?: Array<{ to: string; value?: string; data?: string }>;
+      [key: string]: unknown;
+    }>;
+    error?: string | null;
+  };
+
+  if (data.error) {
+    throw new Error(data.error);
+  }
+
+  const parsedTxs: TransactionData[] = [];
+
+  for (const tx of data.transactions || []) {
+    try {
+      const type =
+        tx.from.toLowerCase() === address.toLowerCase() ? "send" : "receive";
+
+      let amount = tx.value;
+      let memo: string | undefined;
+
+      // Handle Tempo 0x76 batch transactions with calls array
+      if (tx.type === "0x76" && tx.calls && tx.calls.length > 0) {
+        let totalAmount = 0n;
+        for (const call of tx.calls) {
+          if (call.data && call.data.startsWith("0xa9059cbb")) {
+            const amountHex =
+              "0x" + call.data.slice(10 + 64, 10 + 64 + 64);
+            totalAmount += BigInt(amountHex);
+          }
+        }
+        amount = "0x" + totalAmount.toString(16);
+      }
+      // Check for transferWithMemo (function signature: 0x95777d59)
+      else if (tx.input && tx.input.startsWith("0x95777d59")) {
+        try {
+          const amountHex = "0x" + tx.input.slice(10 + 64, 10 + 64 + 64);
+          amount = amountHex;
+
+          const memoHex =
+            "0x" + tx.input.slice(10 + 64 + 64, 10 + 64 + 64 + 64);
+          memo = parseHexToString(memoHex);
+        } catch (e) {
+          console.error("Error parsing transferWithMemo:", e);
+        }
+      }
+      // Check for basic transfer (function signature: 0xa9059cbb)
+      else if (tx.input && tx.input.startsWith("0xa9059cbb")) {
+        const amountHex = "0x" + tx.input.slice(10 + 64, 10 + 64 + 64);
+        amount = amountHex;
+      }
+
+      const formattedAmount = formatUnits(BigInt(amount), 6);
+      const blockNumber = parseInt(tx.blockNumber, 16);
+
+      parsedTxs.push({
+        hash: tx.hash,
+        from: tx.from,
+        to: tx.to,
+        value: amount,
+        blockNumber,
+        timestamp: tx.timestamp || 0,
+        type,
+        amount: parseFloat(formattedAmount).toFixed(2),
+        formattedTimestamp: formatTimestamp(tx.timestamp || 0),
+        memo,
+      });
+    } catch (err) {
+      console.error("Error processing transaction:", err, tx);
+    }
+  }
+
+  return parsedTxs;
+}
+
 export function useTransactionHistory(
   address: string | undefined,
   refreshTrigger?: string
 ) {
-  const [transactions, setTransactions] = useState<TransactionData[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [hasInitialFetch, setHasInitialFetch] = useState(false);
+  const {
+    data: transactions = [],
+    isLoading: loading,
+    error: queryError,
+  } = useQuery({
+    queryKey: ["transactionHistory", address, refreshTrigger],
+    queryFn: () => fetchTransactions(address!),
+    enabled: !!address,
+    refetchInterval: 10_000,
+  });
 
-  useEffect(() => {
-    if (!address) {
-      setTransactions([]);
-      setLoading(false);
-      setHasInitialFetch(true);
-      return;
-    }
-
-    const fetchTransactions = async () => {
-      try {
-        setError(null);
-
-        // Fetch transactions via our own API route to avoid CORS
-        const url = new URL("/api/transactions", window.location.origin);
-        url.searchParams.set("address", address);
-        url.searchParams.set("limit", "10");
-        url.searchParams.set("offset", "0");
-
-        const response = await fetch(url.toString());
-
-        if (!response.ok) {
-          throw new Error(
-            `Failed to fetch transactions: ${response.statusText}`
-          );
-        }
-
-        const data = (await response.json()) as {
-          transactions?: Array<{
-            hash: string;
-            from: string;
-            to: string;
-            value: string;
-            blockNumber: string;
-            input: string;
-            timestamp: number;
-            type?: string;
-            calls?: Array<{ to: string; value?: string; data?: string }>;
-            [key: string]: unknown;
-          }>;
-          error?: string | null;
-        };
-
-        if (data.error) {
-          throw new Error(data.error);
-        }
-
-        // Parse and format transactions
-        const parsedTxs: TransactionData[] = [];
-
-        for (const tx of data.transactions || []) {
-          try {
-            // Determine transaction type
-            const type =
-              tx.from.toLowerCase() === address.toLowerCase()
-                ? "send"
-                : "receive";
-
-            // Parse amount from transaction value
-            // For ERC20 transfers, value is "0x0", actual amount is in the input data
-            let amount = tx.value;
-            let memo: string | undefined;
-
-            // Log full transaction for debugging
-            console.log("Full transaction:", tx);
-
-            // Handle Tempo 0x76 batch transactions with calls array
-            if (tx.type === "0x76" && tx.calls && tx.calls.length > 0) {
-              // Sum up all transfer amounts from calls
-              let totalAmount = 0n;
-              for (const call of tx.calls) {
-                // Parse transfer data: transfer(address,uint256) = 0xa9059cbb
-                if (call.data && call.data.startsWith("0xa9059cbb")) {
-                  const amountHex = "0x" + call.data.slice(10 + 64, 10 + 64 + 64);
-                  totalAmount += BigInt(amountHex);
-                }
-              }
-              amount = "0x" + totalAmount.toString(16);
-              console.log("Tempo batch tx total amount:", totalAmount.toString());
-            }
-            // Check for transferWithMemo (function signature: 0x95777d59 on Tempo)
-            else if (tx.input && tx.input.startsWith("0x95777d59")) {
-              // transferWithMemo(address to, uint256 amount, bytes32 memo)
-              try {
-                // Function selector is at chars 0-10 (0x95777d59)
-                // to is at chars 10-74 (64 chars = 32 bytes)
-                // amount is at chars 74-138 (64 chars = 32 bytes)
-                // memo is at chars 138-202 (64 chars = 32 bytes)
-                const amountHex = "0x" + tx.input.slice(10 + 64, 10 + 64 + 64);
-                amount = amountHex;
-
-                const memoHex =
-                  "0x" + tx.input.slice(10 + 64 + 64, 10 + 64 + 64 + 64);
-                memo = parseHexToString(memoHex);
-              } catch (e) {
-                console.error("Error parsing transferWithMemo:", e);
-              }
-            }
-            // Check for basic transfer (function signature: 0xa9059cbb)
-            else if (tx.input && tx.input.startsWith("0xa9059cbb")) {
-              // transfer(address to, uint256 amount)
-              // Function selector is at chars 0-10 (0xa9059cbb)
-              // to is at chars 10-74 (64 chars = 32 bytes)
-              // amount is at chars 74-138 (64 chars = 32 bytes)
-              const amountHex = "0x" + tx.input.slice(10 + 64, 10 + 64 + 64);
-              amount = amountHex;
-            }
-
-            const formattedAmount = formatUnits(BigInt(amount), 6);
-            const blockNumber = parseInt(tx.blockNumber, 16);
-
-            parsedTxs.push({
-              hash: tx.hash,
-              from: tx.from,
-              to: tx.to,
-              value: amount,
-              blockNumber,
-              timestamp: tx.timestamp || 0,
-              type,
-              amount: parseFloat(formattedAmount).toFixed(2),
-              formattedTimestamp: formatTimestamp(tx.timestamp || 0),
-              memo,
-            });
-          } catch (err) {
-            console.error("Error processing transaction:", err, tx);
-          }
-        }
-
-        setTransactions(parsedTxs);
-      } catch (err) {
-        console.error("Error fetching transactions:", err);
-        setError(
-          err instanceof Error ? err.message : "Failed to fetch transactions"
-        );
-        setTransactions([]);
-      } finally {
-        // Only set loading to false after first successful fetch
-        if (!hasInitialFetch) {
-          setLoading(false);
-          setHasInitialFetch(true);
-        }
-      }
-    };
-
-    fetchTransactions();
-
-    // Refresh transactions every 10 seconds to match balance refresh
-    const interval = setInterval(fetchTransactions, 10000);
-
-    return () => clearInterval(interval);
-  }, [address, refreshTrigger, hasInitialFetch]);
-
-  return { transactions, loading, error };
+  return {
+    transactions,
+    loading,
+    error: queryError instanceof Error ? queryError.message : null,
+  };
 }
 
 function formatTimestamp(unixTimestamp: number): string {
@@ -199,20 +154,16 @@ function formatTimestamp(unixTimestamp: number): string {
 
 function parseHexToString(hex: string): string | undefined {
   try {
-    // Remove 0x prefix if present
     const cleanHex = hex.startsWith("0x") ? hex.slice(2) : hex;
 
-    // Convert hex to bytes
     const bytes = new Uint8Array(cleanHex.length / 2);
     for (let i = 0; i < cleanHex.length; i += 2) {
       bytes[i / 2] = parseInt(cleanHex.slice(i, i + 2), 16);
     }
 
-    // Find the first non-zero byte and the end of the string
     let start = 0;
     let end = bytes.length;
 
-    // Skip leading null bytes
     for (let i = 0; i < bytes.length; i++) {
       if (bytes[i] !== 0) {
         start = i;
@@ -220,7 +171,6 @@ function parseHexToString(hex: string): string | undefined {
       }
     }
 
-    // Find the null terminator from the start
     for (let i = start; i < bytes.length; i++) {
       if (bytes[i] === 0) {
         end = i;
@@ -228,16 +178,13 @@ function parseHexToString(hex: string): string | undefined {
       }
     }
 
-    // If no meaningful content found
     if (start === end) {
       return undefined;
     }
 
-    // Convert to string
     const decoder = new TextDecoder();
     const result = decoder.decode(bytes.slice(start, end)).trim();
 
-    // Return undefined if the result is empty or only whitespace
     return result.length > 0 ? result : undefined;
   } catch (e) {
     console.error("Error parsing hex to string:", e);

@@ -99,7 +99,7 @@ export async function GET(request: NextRequest) {
                 });
                 const rawTxData = await rawTxResponse.json() as { result?: string };
                 if (rawTxData.result) {
-                  const decoded = TransactionEnvelopeTempo.deserialize(rawTxData.result);
+                  const decoded = TransactionEnvelopeTempo.deserialize(rawTxData.result as `0x76${string}`);
                   calls = decoded.calls?.map(c => ({
                     to: c.to || "",
                     value: c.value?.toString(),

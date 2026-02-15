@@ -31,8 +31,10 @@ export function BalanceCard({
       </p>
       <div className="flex items-baseline gap-3 mb-8 flex-wrap">
         {loading && balance === "0.00" ? (
-          <div
-            className="h-16 w-48 rounded animate-pulse"
+          <motion.div
+            animate={{ opacity: [0.1, 0.2, 0.1] }}
+            transition={{ duration: 1.5, repeat: Infinity, ease: "easeInOut" }}
+            className="h-16 w-48 rounded"
             style={{ background: "rgba(255, 255, 255, 0.1)" }}
           />
         ) : (

@@ -1,3 +1,4 @@
+import { motion } from "motion/react";
 import { WalletContainer } from "./WalletContainer";
 import { WalletHeader } from "./WalletHeader";
 import { SkeletonCard } from "./SkeletonCard";
@@ -14,23 +15,31 @@ export function SkeletonView() {
         <SkeletonButton />
       </div>
       <GlassCard>
-        <div
+        <motion.div
+          animate={{ opacity: [0.1, 0.2, 0.1] }}
+          transition={{ duration: 1.5, repeat: Infinity, ease: "easeInOut" }}
           className="h-3 w-28 rounded mb-6"
           style={{ background: "rgba(255, 255, 255, 0.1)" }}
         />
         <div className="space-y-4">
-          <div className="animate-pulse">
+          <motion.div
+            animate={{ opacity: [0.05, 0.1, 0.05] }}
+            transition={{ duration: 1.5, repeat: Infinity, ease: "easeInOut" }}
+          >
             <div
               className="h-12 w-full rounded"
               style={{ background: "rgba(255, 255, 255, 0.05)" }}
             />
-          </div>
-          <div className="animate-pulse">
+          </motion.div>
+          <motion.div
+            animate={{ opacity: [0.05, 0.1, 0.05] }}
+            transition={{ duration: 1.5, repeat: Infinity, ease: "easeInOut", delay: 0.3 }}
+          >
             <div
               className="h-12 w-full rounded"
               style={{ background: "rgba(255, 255, 255, 0.05)" }}
             />
-          </div>
+          </motion.div>
         </div>
       </GlassCard>
     </WalletContainer>

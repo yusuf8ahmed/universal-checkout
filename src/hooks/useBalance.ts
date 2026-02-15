@@ -1,9 +1,8 @@
 import { alphaUsd } from "@/constants";
-import { useEffect, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { Abis } from "tempo.ts/viem";
 import { Address, createPublicClient, defineChain, formatUnits, http } from "viem";
 
-// Define Tempo Moderato chain
 const tempoModerato = defineChain({
   id: 42431,
   name: "Tempo Moderato",
@@ -19,78 +18,61 @@ const publicClient = createPublicClient({
   transport: http("https://rpc.moderato.tempo.xyz"),
 });
 
+interface BalanceResult {
+  balance: string;
+  symbol: string;
+}
+
+async function fetchBalance(address: string): Promise<BalanceResult> {
+  const [balanceResult, decimalsResult, symbolResult] = await Promise.all([
+    publicClient.readContract({
+      address: alphaUsd,
+      abi: Abis.tip20,
+      functionName: "balanceOf",
+      args: [address as Address],
+    }),
+    publicClient.readContract({
+      address: alphaUsd,
+      abi: Abis.tip20,
+      functionName: "decimals",
+    }),
+    publicClient.readContract({
+      address: alphaUsd,
+      abi: Abis.tip20,
+      functionName: "symbol",
+    }),
+  ]);
+
+  const balance = balanceResult as unknown as bigint;
+  const decimals = decimalsResult as unknown as number;
+  const symbol = symbolResult as unknown as string;
+
+  const formatted = formatUnits(balance, decimals);
+  const number = parseFloat(formatted);
+
+  let displayBalance: string;
+  if (number >= 1_000_000) {
+    displayBalance = (number / 1_000_000).toFixed(2) + "M";
+  } else if (number >= 1_000) {
+    displayBalance = (number / 1_000).toFixed(2) + "K";
+  } else {
+    displayBalance = number.toFixed(2);
+  }
+
+  return { balance: displayBalance, symbol };
+}
+
 export function useBalance(address: string | undefined) {
-  const [balance, setBalance] = useState<string>("0.00");
-  const [symbol, setSymbol] = useState<string>("");
-  const [loading, setLoading] = useState(true);
-  const [hasInitialFetch, setHasInitialFetch] = useState(false);
+  const { data, isLoading: loading } = useQuery({
+    queryKey: ["balance", address],
+    queryFn: () => fetchBalance(address!),
+    enabled: !!address,
+    refetchInterval: 10_000,
+  });
 
-  useEffect(() => {
-    if (!address) {
-      setBalance("0.00");
-      setLoading(false);
-      setHasInitialFetch(true);
-      return;
-    }
-
-    const fetchBalance = async () => {
-      try {
-        const [balanceResult, decimalsResult, symbolResult] = await Promise.all([
-          publicClient.readContract({
-            address: alphaUsd,
-            abi: Abis.tip20,
-            functionName: "balanceOf",
-            args: [address as Address],
-          }),
-          publicClient.readContract({
-            address: alphaUsd,
-            abi: Abis.tip20,
-            functionName: "decimals",
-          }),
-          publicClient.readContract({
-            address: alphaUsd,
-            abi: Abis.tip20,
-            functionName: "symbol",
-          }),
-        ]);
-
-        const balance = balanceResult as unknown as bigint;
-        const decimals = decimalsResult as unknown as number;
-        const tokenSymbol = symbolResult as unknown as string;
-
-        setSymbol(tokenSymbol);
-
-        const formatted = formatUnits(balance, decimals);
-        const number = parseFloat(formatted);
-
-        // Format with compact notation for large numbers
-        let displayBalance: string;
-        if (number >= 1_000_000) {
-          displayBalance = (number / 1_000_000).toFixed(2) + "M";
-        } else if (number >= 1_000) {
-          displayBalance = (number / 1_000).toFixed(2) + "K";
-        } else {
-          displayBalance = number.toFixed(2);
-        }
-
-        setBalance(displayBalance);
-      } catch (error) {
-        console.error("Error fetching balance:", error);
-        setBalance("0.00");
-      } finally {
-        // Only set loading to false after first successful fetch
-        if (!hasInitialFetch) {
-          setLoading(false);
-          setHasInitialFetch(true);
-        }
-      }
-    };
-
-    fetchBalance();
-    const interval = setInterval(fetchBalance, 10000); // Refresh every 10 seconds
-
-    return () => clearInterval(interval);
-  }, [address, hasInitialFetch]);
-
-  return { balance, symbol, loading };
+  return {
+    balance: data?.balance ?? "0.00",
+    symbol: data?.symbol ?? "",
+    loading,
+  };
 }

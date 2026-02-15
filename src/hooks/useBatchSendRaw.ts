@@ -11,6 +11,7 @@
 import { alphaUsd } from "@/constants";
 import { useWallets } from "@privy-io/react-auth";
 import { useState } from "react";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   createPublicClient,
   http,
@@ -44,34 +45,24 @@ export interface BatchRawResult {
 
 export function useBatchSendRaw() {
   const { wallets } = useWallets();
-  const [result, setResult] = useState<BatchRawResult>({
-    txHash: null,
-    status: "idle",
-    error: null,
-  });
+  const queryClient = useQueryClient();
+  const [subStep, setSubStep] = useState<BatchRawResult["status"]>("idle");
 
-  const sendBatch = async (recipients: Recipient[]) => {
-    setResult({ txHash: null, status: "building", error: null });
+  const mutation = useMutation({
+    mutationFn: async (recipients: Recipient[]): Promise<string> => {
+      setSubStep("building");
 
-    console.log("All wallets:", wallets);
+      // Find the Privy embedded wallet (not MetaMask or other injected wallets)
+      const wallet = wallets.find((w) => w.walletClientType === "privy");
+      if (!wallet?.address) {
+        throw new Error(
+          "No Privy embedded wallet found. Login with email/SMS to use batch transactions."
+        );
+      }
 
-    // Find the Privy embedded wallet (not MetaMask or other injected wallets)
-    const wallet = wallets.find((w) => w.walletClientType === "privy");
-    if (!wallet?.address) {
-      console.log("Available wallet types:", wallets.map(w => w.walletClientType));
-      setResult({ txHash: null, status: "error", error: "No Privy embedded wallet found. Login with email/SMS to use batch transactions." });
-      return;
-    }
-
-    console.log("Using Privy embedded wallet:", wallet);
-    console.log("Wallet methods:", Object.keys(wallet));
-
-    try {
       // 1. Switch chain and get provider
       await wallet.switchChain(tempoModerato.id);
       const provider = await wallet.getEthereumProvider();
-      console.log("Provider:", provider);
-      console.log("Provider methods:", Object.keys(provider));
 
       // 2. Create public client for RPC calls
       const publicClient = createPublicClient({
@@ -123,21 +114,17 @@ export function useBatchSendRaw() {
 
       // 9. Get sign payload (the hash to sign)
       const signPayload = TransactionEnvelopeTempo.getSignPayload(envelope);
-      console.log("Sign payload:", signPayload);
 
-      setResult({ txHash: null, status: "signing", error: null });
+      setSubStep("signing");
 
       // 10. Sign the hash with secp256k1_sign
-      console.log("Calling secp256k1_sign with payload:", signPayload);
       const rawSignature = await provider.request({
         method: "secp256k1_sign",
         params: [signPayload],
       });
-      console.log("Raw signature:", rawSignature);
 
       // 11. Parse signature into r, s, v components
       const signature = parseSignature(rawSignature);
-      console.log("Parsed signature:", signature);
 
       // 12. Serialize the signed transaction
       const signedTx = TransactionEnvelopeTempo.serialize(envelope, {
@@ -150,9 +137,8 @@ export function useBatchSendRaw() {
           },
         }),
       });
-      console.log("Signed tx:", signedTx);
 
-      setResult({ txHash: null, status: "broadcasting", error: null });
+      setSubStep("broadcasting");
 
       // 13. Broadcast via eth_sendRawTransaction directly to Tempo RPC
       const response = await fetch("https://rpc.moderato.tempo.xyz", {
@@ -167,28 +153,42 @@ export function useBatchSendRaw() {
       });
 
       const rpcResult = await response.json();
-      console.log("RPC result:", rpcResult);
 
       if (rpcResult.error) {
         throw new Error(rpcResult.error.message || "RPC error");
       }
 
-      const txHash = rpcResult.result as string;
-      setResult({ txHash, status: "success", error: null });
+      return rpcResult.result as string;
+    },
+    onSuccess: () => {
+      setSubStep("success");
+      queryClient.invalidateQueries({ queryKey: ["multiTokenBalance"] });
+      queryClient.invalidateQueries({ queryKey: ["transactionHistory"] });
+      queryClient.invalidateQueries({ queryKey: ["balance"] });
+    },
+    onError: () => {
+      setSubStep("error");
+    },
+  });
 
-      return txHash;
-    } catch (err) {
-      const errorMsg = err instanceof Error ? err.message : "Unknown error";
-      console.error("Batch send error:", err);
-      setResult({ txHash: null, status: "error", error: errorMsg });
-    }
+  const result: BatchRawResult = {
+    txHash: mutation.data ?? null,
+    status: mutation.isPending
+      ? subStep
+      : mutation.isSuccess
+        ? "success"
+        : mutation.isError
+          ? "error"
+          : "idle",
+    error: mutation.error?.message ?? null,
   };
 
   const reset = () => {
-    setResult({ txHash: null, status: "idle", error: null });
+    mutation.reset();
+    setSubStep("idle");
   };
 
-  return { sendBatch, result, reset };
+  return { sendBatch: mutation.mutateAsync, result, reset };
 }
 
 // Parse secp256k1 signature from Privy format to r, s, yParity

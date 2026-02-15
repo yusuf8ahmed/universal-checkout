@@ -1,6 +1,6 @@
 import { alphaUsd } from "@/constants";
 import { useWallets } from "@privy-io/react-auth";
-import { useState } from "react";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { tempoActions } from "tempo.ts/viem";
 import {
   createWalletClient,
@@ -25,78 +25,75 @@ const tempoModerato = defineChain({
   feeToken: alphaUsd,
 });
 
+interface SendParams {
+  to: string;
+  amount: string;
+  memo?: string;
+}
+
+async function executeSend(
+  wallets: ReturnType<typeof useWallets>["wallets"],
+  { to, amount, memo = "" }: SendParams
+): Promise<string> {
+  // Use the Privy embedded wallet, not MetaMask
+  const wallet = wallets.find((w) => w.walletClientType === "privy");
+  if (!wallet?.address) {
+    throw new Error("No Privy embedded wallet found");
+  }
+
+  // Switch wallet to Tempo Moderato chain
+  await wallet.switchChain(tempoModerato.id);
+
+  const provider = await wallet.getEthereumProvider();
+
+  // Use HTTP transport for reads (doesn't depend on wallet's chain)
+  const publicClient = createPublicClient({
+    chain: tempoModerato,
+    transport: http("https://rpc.moderato.tempo.xyz"),
+  }).extend(tempoActions());
+
+  const client = createWalletClient({
+    account: wallet.address as Address,
+    chain: tempoModerato,
+    transport: custom(provider),
+  })
+    .extend(walletActions)
+    .extend(tempoActions());
+
+  const metadata = await publicClient.token.getMetadata({
+    token: alphaUsd,
+  });
+  const recipient = await getAddress(to);
+  const { receipt } = await client.token.transferSync({
+    to: recipient,
+    amount: parseUnits(amount, metadata.decimals),
+    memo: stringToHex(memo || to),
+    token: alphaUsd,
+  });
+
+  return receipt.transactionHash;
+}
+
 export function useSend() {
   const { wallets } = useWallets();
-  const [isSending, setIsSending] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [txHash, setTxHash] = useState<string | null>(null);
+  const queryClient = useQueryClient();
 
-  const send = async (to: string, amount: string, memo: string = "") => {
-    if (isSending) return;
-    setIsSending(true);
-    setError(null);
-    setTxHash(null);
-
-    // Use the Privy embedded wallet, not MetaMask
-    const wallet = wallets.find((w) => w.walletClientType === "privy");
-    if (!wallet?.address) {
-      const errMsg = "No Privy embedded wallet found";
-      setError(errMsg);
-      setIsSending(false);
-      throw new Error(errMsg);
-    }
-
-    try {
-      // Switch wallet to Tempo Moderato chain
-      await wallet.switchChain(tempoModerato.id);
-
-      const provider = await wallet.getEthereumProvider();
-
-      // Use HTTP transport for reads (doesn't depend on wallet's chain)
-      const publicClient = createPublicClient({
-        chain: tempoModerato,
-        transport: http("https://rpc.moderato.tempo.xyz"),
-      }).extend(tempoActions());
-
-      const client = createWalletClient({
-        account: wallet.address as Address,
-        chain: tempoModerato,
-        transport: custom(provider),
-      })
-        .extend(walletActions)
-        .extend(tempoActions());
-
-      const metadata = await publicClient.token.getMetadata({
-        token: alphaUsd,
-      });
-      const recipient = await getAddress(to);
-      const { receipt } = await client.token.transferSync({
-        to: recipient,
-        amount: parseUnits(amount, metadata.decimals),
-        memo: stringToHex(memo || to),
-        token: alphaUsd,
-      });
-
-      setTxHash(receipt.transactionHash);
-    } catch (err) {
-      const errorMessage =
-        err instanceof Error ? err.message : "Failed to send";
-      setError(errorMessage);
-      throw err;
-    } finally {
-      setIsSending(false);
-    }
-  };
+  const mutation = useMutation({
+    mutationFn: (params: SendParams) => executeSend(wallets, params),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["multiTokenBalance"] });
+      queryClient.invalidateQueries({ queryKey: ["transactionHistory"] });
+      queryClient.invalidateQueries({ queryKey: ["balance"] });
+    },
+  });
 
   return {
-    send,
-    isSending,
-    error,
-    txHash,
-    reset: () => {
-      setError(null);
-      setTxHash(null);
-    },
+    send: (to: string, amount: string, memo: string = "") =>
+      mutation.mutateAsync({ to, amount, memo }),
+    isSending: mutation.isPending,
+    error: mutation.error?.message ?? null,
+    txHash: mutation.data ?? null,
+    reset: mutation.reset,
   };
 }
 

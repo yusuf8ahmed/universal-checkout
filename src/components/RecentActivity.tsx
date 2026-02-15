@@ -38,8 +38,10 @@ export function RecentActivity({
         </h3>
         <div className="space-y-4">
           {loading ? (
-            <div
-              className="h-20 rounded animate-pulse"
+            <motion.div
+              animate={{ opacity: [0.1, 0.2, 0.1] }}
+              transition={{ duration: 1.5, repeat: Infinity, ease: "easeInOut" }}
+              className="h-20 rounded"
               style={{ background: "rgba(255, 255, 255, 0.1)" }}
             />
           ) : error ? (
