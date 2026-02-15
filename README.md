@@ -1,80 +1,33 @@
-# Tempo + Privy Example Project
+# Universal Checkout
 
-A basic example showing how to send tokens with memos on [Tempo](https://tempo.xyz) using [Privy](https://privy.io) for wallet authentication.
+Stablecoin payment links on Tempo. Create invoices, share a link or QR code, get paid.
 
-## Features
+Built with Next.js, Privy, and [tempo.ts](https://github.com/tempo-labs/tempo.ts).
 
-- **Transaction Memos**: Attach human-readable memos to token transfers
-- **Privy Authentication**: Embedded wallet creation and social login via Privy
-- **Token Transfers**: Send alphaUSD tokens to other users
-
-## Tech Stack
-
-- [Next.js](https://nextjs.org) 15 with App Router
-- [Tempo SDK](https://www.npmjs.com/package/tempo.ts) (`tempo.ts`)
-- [Privy](https://privy.io) for wallet management
-- [Viem](https://viem.sh) for Ethereum interactions
-- [TailwindCSS](https://tailwindcss.com) for styling
-
-## Getting Started
-
-1. Install dependencies:
+## Setup
 
 ```bash
 pnpm install
 ```
 
-2. Copy the example environment file and add your Privy credentials:
+Create a `.env` file:
 
-```bash
-cp .env.example .env.local
+```
+NEXTJS_ENV=development
+NEXT_PUBLIC_PRIVY_APP_ID=your_privy_app_id
+PRIVY_APP_SECRET=your_privy_app_secret
 ```
 
-3. Run the development server:
+## Run
 
 ```bash
 pnpm dev
 ```
 
-4. Open [http://localhost:3000](http://localhost:3000) in your browser.
+## Stack
 
-## Key Implementation Details
-
-### How Privy Is Used
-
-Privy provides two key functions in this app:
-
-**1. Sender Wallet (always used)**
-
-When you log in via email or SMS, Privy automatically creates an embedded wallet for you. No seed phrases or extensions needed. This wallet signs all your transactions.
-
-**2. Recipient Lookup (optional)**
-
-You can send to recipients in two ways:
-
-| Recipient Type | Example | Privy Used? |
-|----------------|---------|-------------|
-| Wallet address | `0x1234...abcd` | No - sends directly to address |
-| Email | `friend@example.com` | Yes - Privy looks up or creates their wallet |
-| Phone | `+14155551234` | Yes - Privy looks up or creates their wallet |
-
-When sending to an email/phone, Privy either finds the recipient's existing wallet or creates a new one. The recipient can then log in with that email/phone to access their funds.
-
-### Transaction Memos
-
-Memos are attached to transfers using the `memo` parameter (TIP-20 feature):
-
-```typescript
-await client.token.transferSync({
-  to: recipient,
-  amount: parseUnits(amount, metadata.decimals),
-  memo: stringToHex(memo),
-  token: alphaUsd,
-});
-```
-
-## Resources
-
-- [Tempo Documentation](https://docs.tempo.xyz)
-- [Privy Documentation](https://docs.privy.io)
-- [Viem Documentation](https://viem.sh)
+- **Next.js 15** — app router + turbopack
+- **Privy** — auth and embedded wallets
+- **tempo.ts** — transaction building and signing
+- **Tailwind v4** — styling
+- **Motion** — animations
