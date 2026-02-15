@@ -14,7 +14,7 @@ import {
 } from "@/lib/invoice";
 import { QRCodeSVG } from "qrcode.react";
 import Link from "next/link";
-import { AnimatePresence, motion } from "motion/react";
+import { motion } from "motion/react";
 
 const fadeInUp = {
   initial: { opacity: 0, y: 12 },

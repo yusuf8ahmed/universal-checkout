@@ -8,7 +8,6 @@ interface ActionButtonProps {
 export function ActionButton({ type, onClick }: ActionButtonProps) {
   const isSend = type === "send";
   const isQuickSend = type === "quicksend";
-  const isReceive = type === "receive";
   const isBatch = type === "batch";
 
   const getPath = () => {
