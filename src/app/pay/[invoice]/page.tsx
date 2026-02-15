@@ -58,7 +58,7 @@ export default function PayPage() {
   );
   const invoiceToken = invoice ? getInvoiceToken(invoice) : undefined;
 
-  const { ready, authenticated, login } = usePrivy();
+  const { ready, authenticated, login, logout } = usePrivy();
   const { wallets } = useWallets();
   const embeddedWallet = wallets.find((w) => w.walletClientType === "privy");
   const walletAddress = embeddedWallet?.address || "";
@@ -158,10 +158,10 @@ export default function PayPage() {
             <h1 className="text-[10px] mb-1 uppercase tracking-wider">
               Universal Checkout
             </h1>
-            <p className="text-[10px] opacity-50">Invalid Payment Link</p>
+            <p className="text-[10px] opacity-50">Invalid Link</p>
           </div>
           <p className="opacity-70">
-            This payment link is invalid or has been corrupted.
+            This link is invalid or has been corrupted.
           </p>
           <Link
             href="/"
@@ -215,12 +215,12 @@ export default function PayPage() {
   };
 
   const statusLabels: Record<string, string> = {
-    idle: "Pay Now",
+    idle: "Send Now",
     quoting: "Getting quote...",
     building: "Preparing transaction...",
     signing: "Sign in wallet...",
     broadcasting: "Broadcasting...",
-    success: "Payment Sent!",
+    success: "Sent!",
     error: "Try Again",
   };
 
@@ -246,7 +246,7 @@ export default function PayPage() {
           <p className="text-[10px] opacity-50">Payment Request</p>
         </motion.div>
 
-        {/* Invoice Details */}
+        {/* Payment Details */}
         <motion.div
           variants={fadeInUp}
           initial="initial"
@@ -255,7 +255,7 @@ export default function PayPage() {
           className="border border-white/20 p-4 mb-6"
         >
           <p className="text-[10px] opacity-50 uppercase tracking-wider mb-3">
-            Invoice Details
+            Payment Details
           </p>
           <div className="space-y-2">
             {invoice.merchantName && (
@@ -287,6 +287,32 @@ export default function PayPage() {
           </div>
         </motion.div>
 
+        {/* Logged-in Account Info */}
+        {authenticated && walletAddress && (
+          <motion.div
+            variants={fadeInUp}
+            initial="initial"
+            animate="animate"
+            transition={{ duration: 0.35, delay: 0.07 }}
+            className="border border-white/10 p-3 mb-6 flex items-center justify-between gap-3"
+          >
+            <div className="min-w-0">
+              <p className="text-[10px] opacity-40 mb-0.5">Connected As</p>
+              <p className="text-[10px] opacity-70 break-all font-mono">
+                {walletAddress}
+              </p>
+            </div>
+            <motion.button
+              whileHover={{ scale: 1.02, borderColor: "rgba(255,255,255,0.5)" }}
+              whileTap={{ scale: 0.98 }}
+              onClick={logout}
+              className="border border-white/20 px-3 py-1.5 text-[10px] opacity-50 hover:opacity-80 shrink-0"
+            >
+              Switch Account
+            </motion.button>
+          </motion.div>
+        )}
+
         {/* Auth Gate */}
         {!authenticated ? (
           <motion.div
@@ -297,7 +323,7 @@ export default function PayPage() {
             className="mb-6"
           >
             <p className="opacity-70 mb-4 text-[11px]">
-              Log in to pay this invoice. You can pay with any supported
+              Log in to continue. You can use any supported
               stablecoin.
             </p>
             <motion.button
@@ -306,7 +332,7 @@ export default function PayPage() {
               onClick={login}
               className="border border-white/20 px-4 py-3 w-full"
             >
-              Log in to Pay
+              Log In
             </motion.button>
           </motion.div>
         ) : result.status === "success" ? (
@@ -324,7 +350,7 @@ export default function PayPage() {
             >
               <StatusBadge status="paid" />
               <p className="opacity-70 mt-3 text-[11px]">
-                Payment submitted successfully.
+                Transaction submitted successfully.
               </p>
               {result.txHash && (
                 <div className="mt-3">
@@ -352,7 +378,7 @@ export default function PayPage() {
             </motion.div>
           </motion.div>
         ) : (
-          /* Payment Form */
+          /* Transfer Form */
           <motion.div
             variants={staggerContainer}
             initial="initial"
@@ -362,7 +388,7 @@ export default function PayPage() {
             {/* Token Selector */}
             <motion.div variants={fadeInUp} transition={{ duration: 0.25 }}>
               <p className="text-[10px] opacity-50 uppercase tracking-wider mb-2">
-                Pay With
+                Send With
               </p>
               <TokenSelector
                 value={selectedToken}
@@ -426,7 +452,7 @@ export default function PayPage() {
                 ) : quote ? (
                   <div className="space-y-1">
                     <div className="flex justify-between">
-                      <span className="opacity-50">You pay</span>
+                      <span className="opacity-50">You send</span>
                       <span className="opacity-90">
                         ~{parseFloat(quote).toFixed(2)}{" "}
                         {selectedTokenInfo?.symbol}
@@ -475,7 +501,7 @@ export default function PayPage() {
               </motion.div>
             )}
 
-            {/* Pay Button */}
+            {/* Send Button */}
             <motion.button
               variants={fadeInUp}
               transition={{ duration: 0.25 }}
@@ -509,7 +535,7 @@ export default function PayPage() {
             >
               {!hasEnough && (result.status === "idle" || result.status === "error")
                 ? `Insufficient ${selectedTokenInfo?.symbol || "token"} balance`
-                : statusLabels[result.status] || "Pay Now"}
+                : statusLabels[result.status] || "Send Now"}
             </motion.button>
 
             {/* Memo Info */}
